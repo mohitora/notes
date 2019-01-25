@@ -1,0 +1,42 @@
+3 Nodes
+[ALL] -> Action to be performed on all nodes
+
+ rhc101 - Node1
+ rhc102 - Node2
+ rhc103 - Node3
+
+- [ALL] Make sure firewall is disabled. (iptables -L)
+- [ALL] Make sure selinux is disabled.(sestatus)
+- [ALL] Update the hosts entry ( /etc/hosts)
+- [ALL] Install below packages ( enable repo - rhel-ha-for-rhel-7-server-rpms)
+yum install pcs pacemaker fence-agents lvm2-cluster resource-agents psmisc policycoreutils-python gfs2-utils --enablerepo=rhel-ha-for-rhel-7-server-rpms
+
+- [ALL] Create user hacluster and set password for the user
+- [ALL] Make sure password never expire.
+[root@rhc101 ~]# chage -l hacluster
+Last password change					: Jan 25, 2019
+Password expires					: never
+Password inactive					: never
+Account expires						: never
+Minimum number of days between password change		: -1
+Maximum number of days between password change		: -1
+Number of days of warning before password expires	: -1
+[root@rhc101 ~]#
+
+
+- [All] Start the PCS service
+[root@rhc101 ~]# systemctl start pcsd
+[root@rhc101 ~]# systemctl status pcsd
+● pcsd.service - PCS GUI and remote configuration interface
+   Loaded: loaded (/usr/lib/systemd/system/pcsd.service; disabled; vendor preset: disabled)
+   Active: active (running) since Fri 2019-01-25 03:10:33 CST; 7s ago
+     Docs: man:pcsd(8)
+           man:pcs(8)
+ Main PID: 17991 (pcsd)
+   CGroup: /system.slice/pcsd.service
+           └─17991 /usr/bin/ruby /usr/lib/pcsd/pcsd
+
+Jan 25 03:10:32 rhc101.ihah.ibm systemd[1]: Starting PCS GUI and remote configuration interface...
+Jan 25 03:10:33 rhc101.ihah.ibm systemd[1]: Started PCS GUI and remote configuration interface.
+[root@rhc101 ~]#
+

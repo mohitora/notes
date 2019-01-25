@@ -1,0 +1,143 @@
+3 Nodes
+[ALL] -> Action to be performed on all nodes
+
+ rhc101 - Node1
+ rhc102 - Node2
+ rhc103 - Node3
+
+- [ALL] Make sure firewall is disabled. (iptables -L)
+- [ALL] Make sure selinux is disabled.(sestatus)
+- [ALL] Update the hosts entry ( /etc/hosts)
+- [ALL] Install below packages ( enable repo - rhel-ha-for-rhel-7-server-rpms)
+yum install pcs pacemaker fence-agents lvm2-cluster resource-agents psmisc policycoreutils-python gfs2-utils --enablerepo=rhel-ha-for-rhel-7-server-rpms
+
+- [ALL] Create user hacluster and set password for the user
+- [ALL] Make sure password never expire.
+[root@rhc101 ~]# chage -l hacluster
+Last password change					: Jan 25, 2019
+Password expires					: never
+Password inactive					: never
+Account expires						: never
+Minimum number of days between password change		: -1
+Maximum number of days between password change		: -1
+Number of days of warning before password expires	: -1
+[root@rhc101 ~]#
+
+
+- [All] Start the PCS service
+[root@rhc101 ~]# systemctl start pcsd
+[root@rhc101 ~]# systemctl status pcsd
+● pcsd.service - PCS GUI and remote configuration interface
+   Loaded: loaded (/usr/lib/systemd/system/pcsd.service; disabled; vendor preset: disabled)
+   Active: active (running) since Fri 2019-01-25 03:10:33 CST; 7s ago
+     Docs: man:pcsd(8)
+           man:pcs(8)
+ Main PID: 17991 (pcsd)
+   CGroup: /system.slice/pcsd.service
+           └─17991 /usr/bin/ruby /usr/lib/pcsd/pcsd
+
+Jan 25 03:10:32 rhc101.ihah.ibm systemd[1]: Starting PCS GUI and remote configuration interface...
+Jan 25 03:10:33 rhc101.ihah.ibm systemd[1]: Started PCS GUI and remote configuration interface.
+[root@rhc101 ~]#
+
+- [RHC101] In browser check the UI -> https://rhc101:2224/login
+(user hacluster/password)
+
+- [ALL] Enable pcsd service
+[root@rhc101 ~]# systemctl enable pcsd
+Created symlink from /etc/systemd/system/multi-user.target.wants/pcsd.service to /usr/lib/systemd/system/pcsd.service.
+[root@rhc101 ~]#
+
+- [ALL] Authrize the nodes
+[root@rhc101 ~]# pcs cluster auth rhc101 rhc102 rhc103 -u hacluster
+Password:
+rhc101: Authorized
+rhc102: Authorized
+rhc103: Authorized
+[root@rhc101 ~]#
+
+- [RHC101] Pcs cluster setup
+[root@rhc101 ~]# pcs cluster setup --start --name TestCluster rhc101 rhc102 rhc103
+Destroying cluster on nodes: rhc101, rhc102, rhc103...
+rhc102: Stopping Cluster (pacemaker)...
+rhc101: Stopping Cluster (pacemaker)...
+rhc103: Stopping Cluster (pacemaker)...
+rhc101: Successfully destroyed cluster
+rhc103: Successfully destroyed cluster
+rhc102: Successfully destroyed cluster
+
+Sending 'pacemaker_remote authkey' to 'rhc101', 'rhc102', 'rhc103'
+rhc101: successful distribution of the file 'pacemaker_remote authkey'
+rhc103: successful distribution of the file 'pacemaker_remote authkey'
+rhc102: successful distribution of the file 'pacemaker_remote authkey'
+Sending cluster config files to the nodes...
+rhc101: Succeeded
+rhc102: Succeeded
+rhc103: Succeeded
+
+Starting cluster on nodes: rhc101, rhc102, rhc103...
+rhc101: Starting Cluster (corosync)...
+rhc102: Starting Cluster (corosync)...
+rhc103: Starting Cluster (corosync)...
+rhc103: Starting Cluster (pacemaker)...
+rhc101: Starting Cluster (pacemaker)...
+rhc102: Starting Cluster (pacemaker)...
+
+Synchronizing pcsd certificates on nodes rhc101, rhc102, rhc103...
+rhc101: Success
+rhc102: Success
+rhc103: Success
+Restarting pcsd on the nodes in order to reload the certificates...
+rhc101: Success
+rhc102: Success
+rhc103: Success
+[root@rhc101 ~]#
+
+
+
+- [ALL] Check the pcs status
+[root@rhc102 yum.repos.d]# pcs cluster status
+Cluster Status:
+ Stack: corosync
+ Current DC: rhc102 (version 1.1.19-8.el7_6.2-c3c624ea3d) - partition with quorum
+ Last updated: Fri Jan 25 03:59:20 2019
+ Last change: Fri Jan 25 03:58:03 2019 by hacluster via crmd on rhc102
+ 3 nodes configured
+ 0 resources configured
+
+PCSD Status:
+  rhc102: Online
+  rhc103: Online
+  rhc101: Online
+[root@rhc102 yum.repos.d]#
+
+- [RHC101] Start and Enable pcs for all from one node.
+[root@rhc101 ~]# pcs cluster start --all
+rhc101: Starting Cluster (corosync)...
+rhc102: Starting Cluster (corosync)...
+rhc103: Starting Cluster (corosync)...
+rhc102: Starting Cluster (pacemaker)...
+rhc101: Starting Cluster (pacemaker)...
+rhc103: Starting Cluster (pacemaker)...
+[root@rhc101 ~]# pcs cluster enable --all
+rhc101: Cluster Enabled
+rhc102: Cluster Enabled
+rhc103: Cluster Enabled
+[root@rhc101 ~]#
+
+
+- [ALL] check status
+[root@rhc101 ~]# crm_mon -r1
+Stack: corosync
+Current DC: rhc103 (version 1.1.19-8.el7_6.2-c3c624ea3d) - partition with quorum
+Last updated: Fri Jan 25 04:17:06 2019
+Last change: Fri Jan 25 03:58:03 2019 by hacluster via crmd on rhc102
+
+3 nodes configured
+0 resources configured
+
+Online: [ rhc101 rhc102 rhc103 ]
+
+No resources
+
+[root@rhc101 ~]#
