@@ -141,3 +141,116 @@ Online: [ rhc101 rhc102 rhc103 ]
 No resources
 
 [root@rhc101 ~]#
+
+- [RHC01] crm_verify -L -V
+ error: unpack_resources: Resource start-up disabled since no STONITH resources have been defined
+ error: unpack_resources: Either configure some or disable STONITH with the stonith-enabled option
+ error: unpack_resources: NOTE: Clusters with shared data need STONITH to ensure data integrity
+ Errors found during check: config not valid
+
+
+- [RHC101] Set properties
+
+[root@rhc101 ~]# pcs property set stonith-enabled=false
+[root@rhc101 ~]# pcs property set no-quorum-policy=stop;
+[root@rhc101 ~]# pcs property
+Cluster Properties:
+ cluster-infrastructure: corosync
+ cluster-name: TestCluster
+ dc-version: 1.1.19-8.el7_6.2-c3c624ea3d
+ have-watchdog: false
+ no-quorum-policy: stop
+ stonith-enabled: false
+
+
+- [RHC101] Virtual IP check
+[root@rhc101 ~]# ping 10.87.102.3
+PING 10.87.102.3 (10.87.102.3) 56(84) bytes of data.
+^C
+--- 10.87.102.3 ping statistics ---
+14 packets transmitted, 0 received, 100% packet loss, time 12999ms
+
+[root@rhc101 ~]# nic=`ifconfig -a | grep -B1 'inet 10.' | head -1 | cut -d ':' -f1 |sed 's/^/####/g' | grep "^####" | cut -d "#" -f5`
+[root@rhc101 ~]# echo $nic
+eth0
+[root@rhc101 ~]# pcs resource create HAProxyVIP ocf:heartbeat:IPaddr2 ip=10.87.102.3 cidr_netmask=26 nic=${nic}:1 op monitor interval=30s --group haproxygrp
+[root@rhc101 ~]# ping -c1 10.87.102.3
+PING 10.87.102.3 (10.87.102.3) 56(84) bytes of data.
+64 bytes from 10.87.102.3: icmp_seq=1 ttl=64 time=0.025 ms
+
+--- 10.87.102.3 ping statistics ---
+
+- [RHC101] Check the status of VIP and see which node is VIP belongs to.
+[root@rhc101 ~]# pcs status
+Cluster name: TestCluster
+Stack: corosync
+Current DC: rhc103 (version 1.1.19-8.el7_6.2-c3c624ea3d) - partition with quorum
+Last updated: Sat Jan 26 09:07:45 2019
+Last change: Sat Jan 26 08:52:24 2019 by root via cibadmin on rhc101
+
+3 nodes configured
+1 resource configured
+
+Online: [ rhc101 rhc102 rhc103 ]
+
+Full list of resources:
+
+ Resource Group: haproxygrp
+     HAProxyVIP	(ocf::heartbeat:IPaddr2):	Started rhc101
+
+Daemon Status:
+  corosync: active/enabled
+  pacemaker: active/enabled
+  pcsd: active/enabled
+[root@rhc101 ~]#
+
+[ALL] Installing apache on all nodes
+yum -y install httpd
+
+- [ALL] cat /etc/httpd/conf.d/serverstatus.conf
+Listen 127.0.0.1:80
+ <Location /server-status>
+ SetHandler server-status
+ Order deny,allow
+ Deny from all
+ Allow from 127.0.0.1
+</Location>
+
+- [ALL] sudo sed -i 's/Listen/#Listen/' /etc/httpd/conf/httpd.conf
+
+Start Apache on all nodes  and verify if the status page is working
+
+sudo systemctl restart httpd
+wget http://127.0.0.1/server-status
+
+- [ALL] Index file
+cat /var/www/html/index.html
+ <html>
+ <h1>rhc101</h1>
+ </html>
+
+- [ALL] First stop apache
+echo "Listen 10.87.102.3:80"|sudo tee --append /etc/httpd/conf/httpd.conf
+
+- [ALL] Add a resource 
+pcs resource create webserver ocf:heartbeat:apache configfile=/etc/httpd/conf/httpd.conf statusurl="http://localhost/server-status" op monitor interval=1min
+
+[RHC101] By default, the cluster will try to balance the resources over the cluster. That means that the virtual IP, which is a resource, will be started on a different node than the webserver-resource. Starting the webserver on a node that isn’t the owner of the virtual IP will cause it to fail since we configured Apache to listen on the virtual IP. In order to make sure that the virtual IP and webserver always stay together, we can add a constraint
+
+sudo pcs constraint colocation add webserver HAProxyVIP INFINITY
+
+- [RHC101] To avoid the situation where the webserver would start before the virtual IP is started or owned by a certain node, we need to add another constraint which determines the order of availability of both resources
+pcs constraint order  HAProxyVIP then webserver
+
+- [RHC101] When both the cluster nodes are not equally powered machines and you would like the resources to be available on the most powerful machine, you can add another constraint for location
+pcs constraint location webserver prefers rhc101=50
+
+- [RHC101] Check the constraint and start and stop the pcs cluster
+pcs constraint
+pcs cluster stop --all && sudo pcs cluster start --all
+
+
+
+
+Ref URL :
+http://jensd.be/156/linux/building-a-high-available-failover-cluster-with-pacemaker-corosync-pcs 
